@@ -27,6 +27,7 @@ caveats:
 params:
   - name: user
     required: true
+    service: easee/accounts
     help:
       de: E-Mail Adresse des Easee Kontos
       en: Email address of the Easee account
