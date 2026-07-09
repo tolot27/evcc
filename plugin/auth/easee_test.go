@@ -17,6 +17,14 @@ func TestNewEaseeFromConfig_MissingPassword(t *testing.T) {
 	require.ErrorIs(t, err, api.ErrCredentialsRequired)
 }
 
+func TestNewEaseeFromConfig_ForceMissingPassword(t *testing.T) {
+	_, err := newEaseeFromConfig(t.Context(), map[string]any{
+		"user":  "x@example.com",
+		"force": true,
+	})
+	require.ErrorIs(t, err, api.ErrCredentialsRequired)
+}
+
 func TestNewEaseeFromConfig_MissingUser(t *testing.T) {
 	_, err := newEaseeFromConfig(t.Context(), map[string]any{"password": "secret"})
 	require.ErrorIs(t, err, api.ErrMissingCredentials)

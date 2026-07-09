@@ -122,6 +122,15 @@
 					<div v-else>
 						<slot name="after-template-info" :values="values"></slot>
 
+						<button
+							v-if="template?.Auth"
+							type="button"
+							class="btn btn-link px-0 mb-3"
+							@click="startAuthChange"
+						>
+							{{ $t("config.general.change") }}
+						</button>
+
 						<div v-if="!hideTemplateFields">
 							<Modbus
 								v-if="modbus"
@@ -337,6 +346,7 @@ export default defineComponent({
 			adminPasswordValue: "",
 			adminPasswordRequired: false,
 			adminPasswordInvalid: false,
+			forceAuthCheck: false,
 		};
 	},
 	computed: {
@@ -720,12 +730,18 @@ export default defineComponent({
 		resetAuthStatus(fullReset = true) {
 			if (fullReset) {
 				this.auth = initialAuthState();
+				this.forceAuthCheck = false;
 			} else {
 				// Partial reset: preserve credentialsRequired so the password field stays visible.
 				this.auth.ok = false;
 				this.auth.loading = false;
 				this.auth.error = null;
 			}
+		},
+		startAuthChange() {
+			this.resetAuthStatus(true);
+			this.forceAuthCheck = true;
+			this.auth.credentialsRequired = true;
 		},
 		async checkAuthStatus() {
 			this.resetAuthStatus(true);
@@ -745,7 +761,11 @@ export default defineComponent({
 
 			const { type } = this.template.Auth;
 			// include the template name so the backend can resolve masked fields
-			const values = { ...this.authValues, template: this.templateName };
+			const values = {
+				...this.authValues,
+				template: this.templateName,
+				...(this.forceAuthCheck ? { force: true } : {}),
+			};
 			this.auth.loading = true;
 			const result = await this.device.checkAuth(type, values, this.id);
 			this.auth.loading = false;
@@ -753,6 +773,7 @@ export default defineComponent({
 				// login already exists
 				this.auth.error = null;
 				this.auth.ok = true;
+				this.forceAuthCheck = false;
 			} else if (result.credentialsRequired) {
 				// password needs to be provided; show the password field
 				this.auth.credentialsRequired = true;

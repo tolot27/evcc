@@ -17,6 +17,7 @@ func newEaseeFromConfig(_ context.Context, other map[string]any) (oauth2.TokenSo
 	var cc struct {
 		User     string
 		Password string
+		Force    bool
 	}
 	if err := util.DecodeOther(other, &cc); err != nil {
 		return nil, err
@@ -31,5 +32,12 @@ func newEaseeFromConfig(_ context.Context, other map[string]any) (oauth2.TokenSo
 	}
 
 	log := util.NewLogger("easee").Redact(cc.User, cc.Password)
+	if cc.Force {
+		if cc.Password == "" {
+			return nil, api.ErrCredentialsRequired
+		}
+		return easee.ReauthenticateTokenSource(log, cc.User, cc.Password)
+	}
+
 	return easee.PersistentTokenSource(log, cc.User, cc.Password)
 }

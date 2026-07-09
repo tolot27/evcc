@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -123,11 +124,18 @@ func (c *tokenSource) RefreshToken(oauthToken *oauth2.Token) (*oauth2.Token, err
 
 	var token *Token
 	if err := c.DoJSON(req, &token); err != nil {
-		if c.password == "" {
-			return nil, api.ErrCredentialsRequired
+		// Only treat genuine HTTP auth failures as a credential problem.
+		// Network errors or other transient failures are propagated unchanged so
+		// the backoff mechanism can retry them.
+		var se *request.StatusError
+		if errors.As(err, &se) && se.HasStatus(http.StatusUnauthorized, http.StatusForbidden) {
+			if c.password == "" {
+				return nil, api.ErrCredentialsRequired
+			}
+			// re-login on auth failure when the password is still available in memory.
+			return c.Authenticate()
 		}
-		// re-login on refresh failure when the password is still available in memory.
-		return c.Authenticate()
+		return nil, err
 	}
 
 	return token.AsOAuth2Token(), nil
@@ -139,8 +147,9 @@ func easeeAccountSubject(user string) string {
 }
 
 type persistedEaseeAuth struct {
-	User  string        `json:"user"`
-	Token *oauth2.Token `json:"token"`
+	User     string        `json:"user"`
+	Password string        `json:"password"`
+	Token    *oauth2.Token `json:"token"`
 }
 
 func loadPersistedEaseeAuth(subject string) *persistedEaseeAuth {
@@ -160,14 +169,15 @@ func loadPersistedEaseeAuth(subject string) *persistedEaseeAuth {
 }
 
 // persistEaseeToken saves the token to the DB so it can be reused across restarts without a fresh login.
-func persistEaseeToken(log *util.Logger, subject, user string, token *oauth2.Token) {
+func persistEaseeToken(log *util.Logger, subject, user, password string, token *oauth2.Token) {
 	if token == nil {
 		return
 	}
 
 	payload := persistedEaseeAuth{
-		User:  user,
-		Token: token,
+		User:     user,
+		Password: password,
+		Token:    token,
 	}
 
 	if err := settings.SetJson(subject, payload); err != nil {
@@ -202,6 +212,27 @@ func KnownAccounts() []string {
 	return accounts
 }
 
+// ReauthenticateTokenSource performs a fresh login with user/password,
+// persists the resulting token and returns an uncached token source.
+func ReauthenticateTokenSource(log *util.Logger, user, password string) (oauth2.TokenSource, error) {
+	if user == "" {
+		return nil, api.ErrMissingCredentials
+	}
+	if password == "" {
+		return nil, api.ErrCredentialsRequired
+	}
+
+	subject := easeeAccountSubject(user)
+	id := NewIdentity(log, user, password)
+	token, err := id.Authenticate()
+	if err != nil {
+		return nil, err
+	}
+	persistEaseeToken(log, subject, user, password, token)
+
+	return oauth.RefreshTokenSource(token, id.RefreshToken), nil
+}
+
 func PersistentTokenSource(log *util.Logger, user, password string) (oauth2.TokenSource, error) {
 	if user == "" {
 		return nil, api.ErrMissingCredentials
@@ -220,11 +251,29 @@ func PersistentTokenSource(log *util.Logger, user, password string) (oauth2.Toke
 		if currentUser == "" {
 			currentUser = stored.User
 		}
+		if currentPassword == "" {
+			currentPassword = stored.Password
+		}
 	}
 
 	initial := (*oauth2.Token)(nil)
 	if stored != nil {
 		initial = stored.Token
+	}
+
+	// If the access token is already expired and we have no password to fall back to,
+	// proactively attempt a refresh now. A 401/403 means the refresh token is also
+	// dead; delete the stale persisted auth and surface the error immediately so
+	// startup fails cleanly (and the user can re-authenticate via the UI).
+	if initial != nil && !initial.Valid() && currentPassword == "" {
+		id := NewIdentity(log, currentUser, currentPassword)
+		newToken, err := id.RefreshToken(initial)
+		if err != nil {
+			settings.Delete(easeeAccountSubject(user))
+			return nil, api.ErrCredentialsRequired
+		}
+		persistEaseeToken(log, subject, currentUser, currentPassword, newToken)
+		initial = newToken
 	}
 
 	// Pre-seed the inner cache with the DB token so TokenSource callers skip login
@@ -244,7 +293,7 @@ func PersistentTokenSource(log *util.Logger, user, password string) (oauth2.Toke
 		if err != nil {
 			return nil, err
 		}
-		persistEaseeToken(log, subject, currentUser, newToken)
+		persistEaseeToken(log, subject, currentUser, currentPassword, newToken)
 		return newToken, nil
 	}
 
