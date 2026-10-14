@@ -107,6 +107,23 @@ func TestEaseeMigrateGenericTemplate(t *testing.T) {
 	assert.Empty(t, c.Product)
 }
 
+func TestEaseeMigrateDisabled(t *testing.T) {
+	lp, _, _ := setupEaseeMigrate(t, easeeTemplate)
+
+	lp.Disable = true
+	require.NoError(t, lp.Update(lp.Data))
+
+	var buf bytes.Buffer
+	require.NoError(t, easeeMigrateToOcpp(&buf, "Garage", easeeOcppTemplate, "ws://1.2.3.4:8887/", "", true))
+	assert.Contains(t, buf.String(), "loadpoint is disabled")
+
+	// disabled flag survives the migration
+	c, err := config.ConfigByID(lp.ID)
+	require.NoError(t, err)
+	assert.True(t, c.Disable)
+	assert.NotEqual(t, lp.Data["charger"], c.Data["charger"])
+}
+
 func TestEaseeMigrateErrors(t *testing.T) {
 	t.Run("unknown loadpoint", func(t *testing.T) {
 		setupEaseeMigrate(t, easeeTemplate)

@@ -181,6 +181,7 @@ func easeeMigrateToOcpp(out io.Writer, title, tpl, url, serial string, apply boo
 	}
 	fmt.Fprintf(out, "easee ocpp url:  %s\n", url)
 	fmt.Fprintln(out, "note: requires Easee firmware >= 328 and evcc sponsorship; stop evcc before applying")
+	warnDisabled(out, lp, old)
 
 	if !apply {
 		fmt.Fprintln(out, "dry run, use --apply to execute")
@@ -274,6 +275,7 @@ func easeeMigrateToEasee(out io.Writer, title string, apply bool) error {
 	fmt.Fprintf(out, "loadpoint:       %s (%s)\n", title, config.NameForID(lp.ID))
 	fmt.Fprintf(out, "old charger:     %s (template %v, stationid %s)\n", config.NameForID(cur.ID), cur.Data["template"], serial)
 	fmt.Fprintf(out, "new charger:     %s (template %s)\n", config.NameForID(easeeCharger.ID), easeeTemplate)
+	warnDisabled(out, lp, cur)
 
 	if !apply {
 		fmt.Fprintln(out, "dry run, use --apply to execute")
@@ -296,6 +298,19 @@ func easeeMigrateToEasee(out io.Writer, title string, apply bool) error {
 
 	fmt.Fprintf(out, "loadpoint %q now uses %s, local ocpp disabled at easee.\n", title, config.NameForID(easeeCharger.ID))
 	return nil
+}
+
+// warnDisabled notes disabled devices: evcc does not control them, but the charger is switched at Easee regardless
+func warnDisabled(out io.Writer, lp, charger config.Config) {
+	if lp.Disable {
+		fmt.Fprintln(out, "note: loadpoint is disabled, the new charger takes effect once it is enabled again")
+	}
+	if charger.Disable {
+		fmt.Fprintf(out, "note: charger %s is disabled\n", config.NameForID(charger.ID))
+	}
+	if lp.Disable || charger.Disable {
+		fmt.Fprintln(out, "warning: the wallbox is switched at Easee immediately and may not be controlled by evcc until then")
+	}
 }
 
 // migrateLoadpoint returns the database loadpoint with the given title
