@@ -181,6 +181,7 @@ func easeeMigrateToOcpp(out io.Writer, title, tpl, url, serial string, apply boo
 	}
 	fmt.Fprintf(out, "easee ocpp url:  %s\n", url)
 	fmt.Fprintln(out, "note: requires Easee firmware >= 328 and evcc sponsorship; stop evcc before applying")
+	fmt.Fprintln(out, "note: the wallbox reboots after the switch, reconnecting can take several minutes")
 	warnDisabled(out, lp, old)
 
 	if !apply {
@@ -229,6 +230,7 @@ func easeeMigrateToOcpp(out io.Writer, title, tpl, url, serial string, apply boo
 	}
 
 	fmt.Fprintf(out, "loadpoint %q now uses %s. Charger connects to evcc on port %d once evcc is started.\n", title, config.NameForID(existing.ID), ocppPort)
+	fmt.Fprintln(out, "note: the wallbox reboots now and may need longer than evcc's 5 minute connect timeout. Start evcc once it is back online, otherwise startup fails and is retried after 15 minutes")
 	return nil
 }
 
@@ -275,6 +277,7 @@ func easeeMigrateToEasee(out io.Writer, title string, apply bool) error {
 	fmt.Fprintf(out, "loadpoint:       %s (%s)\n", title, config.NameForID(lp.ID))
 	fmt.Fprintf(out, "old charger:     %s (template %v, stationid %s)\n", config.NameForID(cur.ID), cur.Data["template"], serial)
 	fmt.Fprintf(out, "new charger:     %s (template %s)\n", config.NameForID(easeeCharger.ID), easeeTemplate)
+	fmt.Fprintln(out, "note: the wallbox reboots after the switch, reconnecting to the Easee cloud can take several minutes")
 	warnDisabled(out, lp, cur)
 
 	if !apply {
@@ -297,6 +300,7 @@ func easeeMigrateToEasee(out io.Writer, title string, apply bool) error {
 	}
 
 	fmt.Fprintf(out, "loadpoint %q now uses %s, local ocpp disabled at easee.\n", title, config.NameForID(easeeCharger.ID))
+	fmt.Fprintln(out, "note: the wallbox reboots now. Start evcc once it is back online in the Easee cloud")
 	return nil
 }
 
